@@ -93,7 +93,6 @@ void loop() {
   }
 }
 
-/* Publicar dades ambient 1 granja*/
 void publishTruck() {
   static String state;
   static const String topicStr = createTopic("state");
