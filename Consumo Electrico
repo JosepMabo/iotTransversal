@@ -54,7 +54,7 @@ void loop() {
   }
 }
 
-/* Publicar dades ambient 1 granja*/
+
 void publishConsum() {
   static const String topicStr = createTopic("Amb");
   static const char *topic = topicStr.c_str();
