@@ -1,0 +1,105 @@
+#include <ArduinoJson.h>  // https://arduinojson.org/
+#include <PubSubClient.h> // https://github.com/knolleary/pubsubclient
+#include <WiFi.h>
+#include <Wire.h>
+#include <DallasTemperature.h>  // Includes the Dallas Temperature library
+#include <OneWire.h>  // Includes the One Wire library
+#include <HardwareSerial.h>
+#include <TinyGPS++.h>
+
+#define RX_PIN 9 // Pinout RX of ESP32
+#define TX_PIN 10 // Pinout TX of ESP32
+#define SLEEP_TIME 6000 // Defined in miliseconds(1 minut)
+#define DS18B20_PIN 15  // Number pin where the sensor is connected
+
+const char  *DEVICE_ID = "MAVQ01"; //Definir el dispositiu
+
+HardwareSerial SerialGPS(1);
+TinyGPSPlus gps;
+
+OneWire oneWire(DS18B20_PIN);
+DallasTemperature ds18b20Sensor(&oneWire);
+
+// Replace the next variables with your Wi-Fi SSID/Password
+const char *WIFI_SSID = "xxxxx";
+const char *WIFI_PASSWORD = "xxxxx";
+char macAddress[18];
+
+// Add MQTT Broker settings
+const char *MQTT_BROKER_IP = "XXXXXXXXXXXXXXXXXX";
+const int MQTT_PORT = 1883;
+const char *MQTT_USER = "xxxxxx";
+const char *MQTT_PASSWORD = "xxxxxxx";
+const bool RETAINED = true;
+
+WiFiClient wifiClient;
+PubSubClient mqttClient(wifiClient);
+
+void setup() {
+  
+  SerialGPS.begin(9600, SERIAL_8N1, RX_PIN, TX_PIN); // Starts gps communication with UART
+  
+  ds18b20Sensor.begin();
+
+  mqttClient.setServer(MQTT_BROKER_IP, MQTT_PORT); // Connect the configured mqtt broker
+  connectToWiFiNetwork(); // Connects to the configured network
+  connectToMqttBroker();  // Connects to the configured mqtt broker
+  
+  delay(30000);  //Espera fins que el gps es conecta
+  
+  if (SerialGPS.available()) {
+    gps.encode(SerialGPS.read()); // Encodes all messages from GPS
+  }
+  
+  ds18b20Sensor.requestTemperatures();
+  
+  publishCowData();
+  
+  esp_sleep_enable_timer_wakeup(SLEEP_TIME * 20); //Setup to wake up after 20min.
+  esp_deep_sleep_start();  // Set the ESP32 to deep sleep mode
+  
+}
+
+void loop() {}
+
+void publishCowData() {
+  static const String topicStr = createTopic("Cow");
+  static const char *topic = topicStr.c_str();
+
+  StaticJsonDocument<128> doc; // Create JSON document of 128 bytes
+  char buffer[128]; // Create the buffer where we will print the JSON document
+                    // to publish through MQTT
+                    
+  doc["lat"] = gps.location.lat();  // Latitude in degrees (double)
+  doc["lon"] = gps.location.lng();  // Longitude in degrees (double)
+  doc["temp"] = ds18b20Sensor.getTempCByIndex(0);  // Reads temp in Celcius
+
+  // Serialize the JSON document to a buffer in order to publish it
+  serializeJson(doc, buffer);
+  mqttClient.publish(topic, buffer, RETAINED);
+}
+
+String createTopic(char *topic) {
+  String topicStr =  String(DEVICE_ID) + "/" + topic;
+  return topicStr;
+}
+
+void connectToWiFiNetwork() {
+
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+  }
+  
+  String macAddressStr = WiFi.macAddress().c_str();
+  strcpy(macAddress, macAddressStr.c_str());
+}
+
+void connectToMqttBroker() {
+
+  mqttClient.connect(macAddress, MQTT_USER, MQTT_PASSWORD);// Using unique mac address from ESP32
+  while (!mqttClient.connected()) {
+    delay(500);
+    mqttClient.connect(macAddress); // Using unique mac address from ESP32
+  }
+}
